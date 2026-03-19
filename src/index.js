@@ -249,6 +249,7 @@ async function runCycle() {
         if (!isDryRun) {
           let finalReply = reply;
           let posted = false;
+          let reloginAttempted = false;
 
           // Try posting — up to 3 attempts (shorten on note tweet, relogin on auth)
           for (let attempt = 0; attempt < 3; attempt++) {
@@ -268,44 +269,37 @@ async function runCycle() {
             } catch (err) {
               const errMsg = err.message || "";
 
-              // Note tweet error (code 37) — reply too long, REGENERATE shorter
+              // Note tweet error (code 37) — reply too long, REGENERATE
               if (errMsg.includes("note tweet") || errMsg.includes("37")) {
                 log.warn(`  Reply too long (${finalReply.length} chars) — regenerating...`);
-
-                // Regenerate with Ollama
                 try {
                   const retry = await ollama.generateReply(fullText, username, displayName, bio);
                   if (retry && retry.reply && retry.reply.length >= 5 && retry.reply.length <= 200) {
                     finalReply = retry.reply;
                     log.bot(`  [regenerated] → "${finalReply}"`);
-                    continue; // retry with new reply
+                    continue;
                   }
                 } catch {}
-
                 log.err(`  Could not regenerate, skipping`);
-                errors++;
                 break;
               }
 
-              // Auth error — try re-login ONCE, then skip this tweet
-              if (isAuthError(errMsg) && !authFailed) {
+              // Auth/422 error — relogin ONCE only
+              if (isAuthError(errMsg) && !reloginAttempted) {
+                reloginAttempted = true;
                 const relogged = await autoLogin();
                 if (relogged) {
                   twitter.setLoginCookie(loginCookie);
-                  // Wait 30-60s after relogin before retrying
                   const cooldown = randDelay();
                   log.info(`  Cooling down ${Math.round(cooldown / 1000)}s after relogin...`);
                   await sleep(cooldown);
-                  log.ok("  Retrying with new cookie...");
-                  continue; // retry same reply ONE more time
-                } else {
-                  authFailed = true;
-                  log.err("  Re-login failed");
+                  log.ok("  Retrying once with new cookie...");
+                  continue; // ONE more attempt
                 }
+                log.err("  Re-login failed");
               }
 
-              // If we already relogged and still failing, skip this tweet
-              // It'll come back next scan cycle
+              // Skip this tweet — will retry next scan
               log.warn(`  Skipping tweet — will retry next cycle`);
               logActivity({ type: "error", targetUser: username, tweetId: tweet.id, error: errMsg });
               break;
