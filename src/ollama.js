@@ -6,26 +6,23 @@ import axios from "axios";
 
 const PATTERNS = [
   {
-    // GM anywhere as standalone: "gm", "GM", "Gm", "type gm", "GM fam", etc
-    match: /(?:^|[\s,!?.;:\n])gm(?:[\s,!?.;:\n]|$)|good\s*morning|morning\s*(everyone|fam|all|guys|frens|gang)/i,
+    // GM: standalone "gm" anywhere — \b handles word boundaries including emoji/punctuation
+    match: /\bgm\b|good\s*morning|morning\s*(everyone|fam|all|guys|frens|gang)/i,
     type: "gm",
     replies: (n) => [`GM ${n} 🌅`, `Good Morning ${n} ☀️`, `GM ${n}, let's get it 🌅`, `Morning ${n} ☀️`, `GM ${n} 🔆`],
   },
   {
-    // GN anywhere as standalone
-    match: /(?:^|[\s,!?.;:\n])gn(?:[\s,!?.;:\n]|$)|good\s*night|nighty?\b|sleep\s*well|sweet\s*dreams/i,
+    match: /\bgn\b|good\s*night|nighty?\b|sleep\s*well|sweet\s*dreams/i,
     type: "gn",
     replies: (n) => [`GN ${n} 🌙`, `Good Night ${n} 🌙`, `GN ${n}, rest up 💤`, `Night ${n} 🌜`],
   },
   {
-    // GE anywhere as standalone
-    match: /(?:^|[\s,!?.;:\n])ge(?:[\s,!?.;:\n]|$)|good\s*evening|evening\s*(everyone|fam|all|guys|frens|gang)/i,
+    match: /\bge\b|good\s*evening|evening\s*(everyone|fam|all|guys|frens|gang)/i,
     type: "ge",
     replies: (n) => [`GE ${n} 🌆`, `Good Evening ${n} 🌇`, `Evening ${n} 🌆`],
   },
   {
-    // GA anywhere as standalone
-    match: /(?:^|[\s,!?.;:\n])ga(?:[\s,!?.;:\n]|$)|good\s*afternoon|afternoon\s*(everyone|fam|all|guys|frens|gang)/i,
+    match: /\bga\b|good\s*afternoon|afternoon\s*(everyone|fam|all|guys|frens|gang)/i,
     type: "ga",
     replies: (n) => [`GA ${n} ☀️`, `Good Afternoon ${n} 🌤️`, `Afternoon ${n} ☀️`],
   },
@@ -67,19 +64,30 @@ function tryPatternMatch(text, displayName) {
   const clean = text
     .replace(/https?:\/\/t\.co\/\w+/g, "")
     .replace(/&amp;/g, "&")
-    .replace(/^(@\w+\s*)+/, "") // strip leading @mentions
-    .replace(/[\u{1F600}-\u{1F9FF}]/gu, "") // strip emojis
+    .replace(/^(@\w+\s*)+/, "")
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "") // strip emojis
     .trim();
 
   const firstName = getFirstName(displayName);
 
-  // Only match if the clean text is short (greeting-like) or starts with the pattern
+  // Words that contain "gm", "gn", "ge", "ga" but aren't greetings
+  const falsePositives = /program|gaming|begin|began|organ|again|engage|page|stage|image|manage|package|change|challenge|genre|gene|general|generate|gesture|gentleman|together|get|gem|agent|agenda|gear|signal|sign|design|assign|ignore|magnet|segment|magazine/i;
+
   for (const p of PATTERNS) {
     if (p.match.test(clean)) {
-      // Extra check for gm/gn/ge/ga: tweet should be short (< 100 chars) to be a greeting
-      if (["gm", "gn", "ge", "ga"].includes(p.type) && clean.length > 100) {
-        continue; // long tweet mentioning "morning" isn't a greeting
+      // For 2-letter greetings, verify it's not a false positive
+      if (["gm", "gn", "ge", "ga"].includes(p.type)) {
+        // Check if any word in the tweet contains gm/gn/ge/ga as part of a longer word
+        const words = clean.toLowerCase().split(/\s+/);
+        const abbrev = p.type;
+        const hasStandalone = words.some(w => w.replace(/[^a-z]/g, "") === abbrev);
+        const hasFullPhrase = /good\s*(morning|night|evening|afternoon)/i.test(clean);
+
+        if (!hasStandalone && !hasFullPhrase) {
+          continue; // "gm" only found inside another word
+        }
       }
+
       const options = p.replies(firstName);
       return { reply: options[Math.floor(Math.random() * options.length)], type: p.type };
     }

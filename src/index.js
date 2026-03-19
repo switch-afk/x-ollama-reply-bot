@@ -204,14 +204,21 @@ async function runCycle() {
         // Skip already replied
         if (hasReplied(tweet.id)) continue;
 
-        // Fetch full tweet text
+        // Fetch full tweet text (timeline truncates)
         let fullText = tweet.text;
         try {
           const full = await twitter.getTweetById(tweet.id);
-          if (full?.text) fullText = full.text;
-        } catch {}
+          if (full?.text) {
+            fullText = full.text;
+            if (fullText.length > tweet.text.length) {
+              console.log(`    [debug] Full text fetched: ${fullText.length} chars (was ${tweet.text.length})`);
+            }
+          }
+        } catch (err) {
+          console.log(`    [debug] Full tweet fetch failed: ${err.message}`);
+        }
 
-        const preview = fullText.slice(0, 80) + (fullText.length > 80 ? "..." : "");
+        const preview = fullText;
 
         // Generate reply (pattern match or LLM)
         let result;
