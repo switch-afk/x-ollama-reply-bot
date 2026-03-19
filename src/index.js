@@ -89,9 +89,9 @@ async function autoLogin() {
 function isAuthError(errMsg) {
   const msg = (errMsg || "").toLowerCase();
   return msg.includes("authorization") || msg.includes("401") ||
-    msg.includes("403") || msg.includes("not authenticated") ||
-    msg.includes("login") || msg.includes("cookie") ||
-    msg.includes("session") || msg.includes("expired");
+    msg.includes("403") || msg.includes("422") ||
+    msg.includes("not authenticated") || msg.includes("login") ||
+    msg.includes("cookie") || msg.includes("session") || msg.includes("expired");
 }
 
 // ─── Preflight ────────────────────────────────
@@ -250,8 +250,8 @@ async function runCycle() {
           let finalReply = reply;
           let posted = false;
 
-          // Try posting — up to 2 attempts (regenerate shorter on note tweet error)
-          for (let attempt = 0; attempt < 2; attempt++) {
+          // Try posting — up to 3 attempts (shorten on note tweet, relogin on auth)
+          for (let attempt = 0; attempt < 3; attempt++) {
             try {
               const replyId = await twitter.postReply(tweet.id, finalReply);
               log.ok(`  ✅ Posted! (${replyId})`);
