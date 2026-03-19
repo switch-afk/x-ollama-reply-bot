@@ -10,6 +10,8 @@ export class TwitterClient {
     const proxyList = process.env.PROXY_LIST;
     this.proxies = proxyList ? proxyList.split(",").map((p) => p.trim()) : [proxy];
     this.proxyIndex = 0;
+    // Track which proxies work for posting
+    this.workingProxies = [...this.proxies];
 
     this.http = axios.create({
       baseURL: this.baseURL,
@@ -19,9 +21,19 @@ export class TwitterClient {
   }
 
   getNextProxy() {
-    const p = this.proxies[this.proxyIndex % this.proxies.length];
+    // Prefer working proxies
+    const pool = this.workingProxies.length > 0 ? this.workingProxies : this.proxies;
+    const p = pool[this.proxyIndex % pool.length];
     this.proxyIndex++;
     return p;
+  }
+
+  markProxyBad(proxy) {
+    this.workingProxies = this.workingProxies.filter((p) => p !== proxy);
+  }
+
+  markProxyGood(proxy) {
+    if (!this.workingProxies.includes(proxy)) this.workingProxies.push(proxy);
   }
 
   setLoginCookie(cookie) { this.loginCookie = cookie; }
@@ -55,17 +67,11 @@ export class TwitterClient {
     return all;
   }
 
-  // ─── User Info ──────────────────────────────
-  async getUserInfo(username) {
-    const { data } = await this.http.get("/user/info", { params: { userName: username } });
-    return data;
-  }
-
-  // ─── Get ALL tweets (no limit) ──────────────
+  // ─── Get tweets (single API call per user) ──
   async getLatestTweets(username, userId = null) {
     let allTweets = [];
 
-    // tweet_timeline with userId
+    // ONE call — tweet_timeline with userId
     if (userId) {
       try {
         const { data } = await this.http.get("/user/tweet_timeline", { params: { userId } });
@@ -75,7 +81,7 @@ export class TwitterClient {
       }
     }
 
-    // Fallback: last_tweets by userName
+    // Fallback ONE call — last_tweets
     if (allTweets.length === 0) {
       try {
         const { data } = await this.http.get("/user/last_tweets", { params: { userName: username } });
@@ -87,7 +93,7 @@ export class TwitterClient {
 
     console.log(`    [debug] Raw: ${allTweets.length} tweets`);
 
-    // Filter: skip retweets, keep everything with text (including text+image)
+    // Filter: skip retweets, keep everything with text
     const filtered = allTweets.filter((t) => {
       if (!t.text) return false;
       if (t.retweeted_tweet) return false;
@@ -97,25 +103,18 @@ export class TwitterClient {
     });
 
     console.log(`    [debug] After filter: ${filtered.length} tweets`);
-    return filtered; // NO LIMIT — return all
+    return filtered;
   }
 
-  // ─── Fetch full tweet ───────────────────────
-  async getTweetById(tweetId) {
-    try {
-      const { data } = await this.http.get("/tweets", { params: { tweet_ids: tweetId } });
-      const tweets = data?.data?.tweets || data?.tweets || [];
-      return tweets[0] || null;
-    } catch { return null; }
-  }
-
-  // ─── Post Reply (with proxy rotation) ───────
+  // ─── Post Reply (smart proxy — max 3 proxies tried) ──
   async postReply(tweetId, text) {
     if (!this.loginCookie) throw new Error("Not logged in");
 
     let lastError = "";
+    // Try max 3 proxies, not all 10
+    const maxTries = Math.min(3, this.proxies.length);
 
-    for (let i = 0; i < this.proxies.length; i++) {
+    for (let i = 0; i < maxTries; i++) {
       const proxy = this.getNextProxy();
       const pShort = proxy.split("@")[1] || proxy;
 
@@ -129,12 +128,18 @@ export class TwitterClient {
         });
         data = res.data;
       } catch (err) {
+        // Timeout — tweet likely posted
         if (err.code === "ECONNABORTED" || err.message.includes("timeout")) {
           console.log(`    [proxy] ${pShort} timed out (tweet may have posted)`);
           return "timeout-ok";
         }
+        // 402 = out of credits — stop immediately
+        if (err.message.includes("402")) {
+          throw new Error("API credits exhausted (402) — top up at twitterapi.io/dashboard");
+        }
         console.log(`    [proxy] ${pShort} error: ${err.message}`);
         lastError = err.message;
+        this.markProxyBad(proxy);
         continue;
       }
 
@@ -145,20 +150,25 @@ export class TwitterClient {
 
       if (status === "success" && resultId) {
         console.log(`    [proxy] Posted via ${pShort}`);
+        this.markProxyGood(proxy);
         return resultId;
       }
 
       lastError = msg || JSON.stringify(data);
 
-      // 461 = old tweet, don't retry
-      if (code === 461 || msg.includes("461")) throw new Error(`Tweet too old`);
-
-      // 37 = note tweet (too long), no proxy will fix this
+      // Fatal errors — don't retry
+      if (code === 461 || msg.includes("461")) throw new Error("Tweet too old");
       if (code === 37 || msg.includes("note tweet")) throw new Error(`note tweet: ${msg}`);
+      if (msg.includes("402")) throw new Error("API credits exhausted (402)");
+
+      // 226 = bot detection, mark proxy as bad
+      if (code === 226 || msg.includes("226")) {
+        this.markProxyBad(proxy);
+      }
 
       console.log(`    [proxy] ${pShort} failed (${code || "err"}), next...`);
     }
 
-    throw new Error(`All proxies failed: ${lastError}`);
+    throw new Error(`Failed after ${maxTries} proxies: ${lastError}`);
   }
 }
