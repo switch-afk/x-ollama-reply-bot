@@ -240,44 +240,63 @@ async function runCycle() {
 
         // Post reply
         if (!isDryRun) {
-          try {
-            const replyId = await twitter.postReply(tweet.id, reply);
-            log.ok(`  ✅ Posted! (${replyId})`);
-            repliesSent++;
-            repliedThisUser++;
+          let finalReply = reply;
+          let posted = false;
 
-            logActivity({
-              type: "reply", method, targetUser: username,
-              tweetId: tweet.id, tweetText: fullText.slice(0, 200),
-              replyText: reply, replyId,
-            });
-          } catch (err) {
-            const errMsg = err.message || "";
-            log.err(`  Post failed: ${errMsg}`);
-            errors++;
-            logActivity({ type: "error", targetUser: username, tweetId: tweet.id, error: errMsg });
+          // Try posting — up to 2 attempts (regenerate shorter on note tweet error)
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const replyId = await twitter.postReply(tweet.id, finalReply);
+              log.ok(`  ✅ Posted! (${replyId})`);
+              repliesSent++;
+              repliedThisUser++;
+              posted = true;
 
-            // Auth error — try re-login once and retry
-            if (isAuthError(errMsg) && !authFailed) {
-              const relogged = await autoLogin();
-              if (relogged) {
-                twitter.setLoginCookie(loginCookie);
-                authFailed = false; // reset flag
-                log.ok("  Retrying post with new cookie...");
-                try {
-                  const retryId = await twitter.postReply(tweet.id, reply);
-                  log.ok(`  ✅ Retry posted! (${retryId})`);
-                  repliesSent++;
-                  repliedThisUser++;
-                  errors--; // undo the error count
-                } catch (retryErr) {
-                  log.err(`  Retry also failed: ${retryErr.message}`);
-                  authFailed = true; // don't keep retrying
+              logActivity({
+                type: "reply", method, targetUser: username,
+                tweetId: tweet.id, tweetText: fullText.slice(0, 200),
+                replyText: finalReply, replyId,
+              });
+              break;
+            } catch (err) {
+              const errMsg = err.message || "";
+
+              // Note tweet error (code 37) — reply too long, regenerate shorter
+              if (errMsg.includes("note tweet") || errMsg.includes("37")) {
+                log.warn(`  Reply too long (${finalReply.length} chars) — regenerating shorter...`);
+
+                // Truncate to 100 chars at word boundary
+                if (finalReply.length > 100) {
+                  finalReply = finalReply.slice(0, 97);
+                  const sp = finalReply.lastIndexOf(" ");
+                  if (sp > 50) finalReply = finalReply.slice(0, sp);
+                  log.bot(`  [shortened] → "${finalReply}"`);
+                  continue; // retry with shorter
                 }
-              } else {
-                authFailed = true;
-                log.err("  Re-login failed — skipping remaining posts this cycle");
+
+                // Already short — skip
+                log.err(`  Still failing at ${finalReply.length} chars, skipping`);
+                errors++;
+                break;
               }
+
+              // Auth error — try re-login
+              if (isAuthError(errMsg) && !authFailed) {
+                const relogged = await autoLogin();
+                if (relogged) {
+                  twitter.setLoginCookie(loginCookie);
+                  log.ok("  Retrying with new cookie...");
+                  continue; // retry same reply
+                } else {
+                  authFailed = true;
+                  log.err("  Re-login failed");
+                }
+              }
+
+              log.err(`  Post failed: ${errMsg}`);
+              errors++;
+              logActivity({ type: "error", targetUser: username, tweetId: tweet.id, error: errMsg });
+              break;
             }
           }
 

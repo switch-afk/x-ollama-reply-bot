@@ -153,6 +153,9 @@ export class TwitterClient {
       // 461 = old tweet, don't retry
       if (code === 461 || msg.includes("461")) throw new Error(`Tweet too old`);
 
+      // 37 = note tweet (too long), no proxy will fix this
+      if (code === 37 || msg.includes("note tweet")) throw new Error(`note tweet: ${msg}`);
+
       console.log(`    [proxy] ${pShort} failed (${code || "err"}), next...`);
     }
 
