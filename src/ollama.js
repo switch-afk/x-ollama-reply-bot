@@ -6,27 +6,26 @@ import axios from "axios";
 
 const PATTERNS = [
   {
-    // GM only: standalone "gm", "GM!", "good morning", "morning everyone" etc
-    // Must be at start of tweet or standalone, NOT inside a word
-    match: /^(gm\b|good\s*morning|morning\s*(everyone|fam|all|guys|frens))/i,
+    // GM anywhere as standalone: "gm", "GM", "Gm", "type gm", "GM fam", etc
+    match: /(?:^|[\s,!?.;:\n])gm(?:[\s,!?.;:\n]|$)|good\s*morning|morning\s*(everyone|fam|all|guys|frens|gang)/i,
     type: "gm",
     replies: (n) => [`GM ${n} 🌅`, `Good Morning ${n} ☀️`, `GM ${n}, let's get it 🌅`, `Morning ${n} ☀️`, `GM ${n} 🔆`],
   },
   {
-    // GN only: standalone "gn", "good night" etc
-    match: /^(gn\b|good\s*night|nighty?\b|sleep\s*well|sweet\s*dreams)/i,
+    // GN anywhere as standalone
+    match: /(?:^|[\s,!?.;:\n])gn(?:[\s,!?.;:\n]|$)|good\s*night|nighty?\b|sleep\s*well|sweet\s*dreams/i,
     type: "gn",
     replies: (n) => [`GN ${n} 🌙`, `Good Night ${n} 🌙`, `GN ${n}, rest up 💤`, `Night ${n} 🌜`],
   },
   {
-    // GE only: standalone "ge" or "good evening" — NOT matching "ge" inside words
-    match: /^(ge\b|good\s*evening|evening\s*(everyone|fam|all|guys|frens))/i,
+    // GE anywhere as standalone
+    match: /(?:^|[\s,!?.;:\n])ge(?:[\s,!?.;:\n]|$)|good\s*evening|evening\s*(everyone|fam|all|guys|frens|gang)/i,
     type: "ge",
     replies: (n) => [`GE ${n} 🌆`, `Good Evening ${n} 🌇`, `Evening ${n} 🌆`],
   },
   {
-    // GA only: standalone "ga" or "good afternoon" — NOT matching "ga" inside words
-    match: /^(ga\b|good\s*afternoon|afternoon\s*(everyone|fam|all|guys|frens))/i,
+    // GA anywhere as standalone
+    match: /(?:^|[\s,!?.;:\n])ga(?:[\s,!?.;:\n]|$)|good\s*afternoon|afternoon\s*(everyone|fam|all|guys|frens|gang)/i,
     type: "ga",
     replies: (n) => [`GA ${n} ☀️`, `Good Afternoon ${n} 🌤️`, `Afternoon ${n} ☀️`],
   },
