@@ -139,82 +139,89 @@ export class OllamaClient {
     // 3. Detect if tweet is crypto-related
     const isCrypto = /\b(crypto|bitcoin|btc|eth|sol|solana|defi|nft|token|blockchain|web3|pump\.?fun|raydium|jupiter|phantom|dex|swap|mint|airdrop|staking|rug|degen|wagmi|ngmi|hodl|bullish|bearish)\b/i.test(clean);
 
-    // 4. LLM generation with context-aware prompt
-    const systemPrompt = `You reply to tweets. RULES:
-- MAXIMUM 120 characters. Hard limit. Count carefully.
-- Read the tweet carefully. Reply ONLY about what the tweet says.
-- NEVER bring up topics the tweet doesn't mention.
-- NEVER mention Solana, crypto, DeFi, NFTs, pump.fun unless the tweet is about them.
-- Be witty, sharp, natural. Sound like a real person.
-- One sentence only. Max 1 emoji.
-- NEVER ask a question. No question marks.
+    // 4. Try up to 3 times to get a good reply under 120 chars
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const maxChars = attempt === 0 ? 120 : attempt === 1 ? 80 : 60;
+
+      const systemPrompt = `Write a tweet reply in UNDER ${maxChars} characters. STRICT RULES:
+- MAXIMUM ${maxChars} characters. Count every letter.
+- Read the tweet. Reply ONLY about what it says.
+- NEVER bring up unrelated topics.
+- Be witty, sharp, confident. Sound human.
+- One short sentence. Max 1 emoji.
+- NEVER ask questions. No question marks.
 - NEVER start with "I" "Wow" "This" "Oh" "So" "Haha"
-- NEVER refuse to reply. Always engage positively.
+- NEVER refuse. Always engage positively.
 - No brackets, placeholders, quotes, hashtags
 - No wallets, addresses, DMs, links
-- No generic filler like "great post" or "interesting"
-- Make a statement, not a question. Be confident.
-${isCrypto ? "- The tweet IS about crypto so you can flex crypto/Solana knowledge" : "- The tweet is NOT about crypto so do NOT mention any crypto topics"}
-- Output ONLY the reply text, absolutely nothing else`;
+- No "great post" or "interesting"
+- Make a confident statement.
+${isCrypto ? "- Tweet IS about crypto, flex knowledge" : "- Tweet is NOT about crypto, do NOT mention crypto"}
+- Output ONLY the reply, nothing else`;
 
-    const userPrompt = `Tweet: "${clean}"
+      const userPrompt = `Tweet: "${clean.slice(0, 200)}"
 
-Reply:`;
+Reply (under ${maxChars} chars):`;
 
-    try {
-      const { data } = await axios.post(
-        `${this.baseURL}/api/generate`,
-        {
-          model: this.model,
-          prompt: userPrompt,
-          system: systemPrompt,
-          stream: false,
-          options: { temperature: 0.75, top_p: 0.85, num_predict: 50 },
-        },
-        { timeout: 90000 }
-      );
+      try {
+        const { data } = await axios.post(
+          `${this.baseURL}/api/generate`,
+          {
+            model: this.model,
+            prompt: userPrompt,
+            system: systemPrompt,
+            stream: false,
+            options: { temperature: 0.75, top_p: 0.85, num_predict: attempt === 0 ? 50 : 30 },
+          },
+          { timeout: 90000 }
+        );
 
-      let reply = this.cleanReply(data.response || "");
-      if (!reply || reply.length < 5) return null;
+        let reply = this.cleanReply(data.response || "");
+        if (!reply || reply.length < 5) continue;
 
-      // Reject bad content
-      const bad = [/\[/, /wallet/i, /address/i, /DM me/i, /send me/i,
-        /check (my|the) (bio|profile|link)/i, /interesting read/i,
-        /great (post|article|read|thread)/i, /^(SKIP|N\/A|none|undefined)$/i,
-        /^RT /i, /insert/i, /\bfollow me\b/i,
-        /I can't/i, /I cannot/i, /I'm just an AI/i, /as an AI/i, /I'm not able/i,
-        /I don't think/i, /I'm sorry/i, /I apologize/i,
-        /satisfy your request/i, /can't (help|assist|create|generate)/i,
-        /inappropriate/i, /offensive/i, /harmful/i, /violat/i,
-      ];
-      for (const p of bad) { if (p.test(reply)) return null; }
+        // Reject bad content
+        const bad = [/\[/, /wallet/i, /address/i, /DM me/i, /send me/i,
+          /check (my|the) (bio|profile|link)/i, /interesting read/i,
+          /great (post|article|read|thread)/i, /^(SKIP|N\/A|none|undefined)$/i,
+          /^RT /i, /insert/i, /\bfollow me\b/i,
+          /I can't/i, /I cannot/i, /I'm just an AI/i, /as an AI/i, /I'm not able/i,
+          /I don't think/i, /I'm sorry/i, /I apologize/i,
+          /satisfy your request/i, /can't (help|assist|create|generate)/i,
+          /inappropriate/i, /offensive/i, /harmful/i, /violat/i,
+        ];
+        let rejected = false;
+        for (const p of bad) { if (p.test(reply)) { rejected = true; break; } }
+        if (rejected) continue;
 
-      // Strip trailing question marks — turn questions into statements
-      reply = reply.replace(/\?+\s*$/, "").trim();
-
-      // If reply still ends with question words, reject
-      if (/\b(right|huh|yeah|no|eh)\s*$/i.test(reply)) {
+        // Strip questions
+        reply = reply.replace(/\?+\s*$/, "").trim();
         reply = reply.replace(/\s*(right|huh|yeah|no|eh)\s*$/i, "").trim();
-      }
 
-      // If tweet is NOT crypto but reply mentions crypto stuff, reject it
-      if (!isCrypto && /\b(solana|pump\.?fun|raydium|jupiter|phantom|tensor|magic\s*eden|marinade|defi|nft|token|blockchain|web3|crypto|on-chain)\b/i.test(reply)) {
-        return null;
-      }
+        // Reject crypto in non-crypto tweets
+        if (!isCrypto && /\b(solana|pump\.?fun|raydium|jupiter|phantom|tensor|magic\s*eden|marinade|defi|nft|token|blockchain|web3|crypto|on-chain)\b/i.test(reply)) {
+          continue;
+        }
 
-      if (reply.length > 250) {
-        reply = reply.slice(0, 247);
-        const sp = reply.lastIndexOf(" ");
-        if (sp > 180) reply = reply.slice(0, sp);
-      }
+        // CHECK LENGTH — must be under 250 chars (Twitter limit without Blue)
+        if (reply.length > 250) {
+          console.log(`    [ollama] Attempt ${attempt + 1}: too long (${reply.length}), retrying shorter...`);
+          continue;
+        }
 
-      return { reply, method: "llm" };
-    } catch (err) {
-      if (err.code === "ECONNREFUSED") {
-        throw new Error(`Ollama not running at ${this.baseURL} — run: ollama serve`);
+        // Good reply
+        if (attempt > 0) console.log(`    [ollama] Got good reply on attempt ${attempt + 1}`);
+        return { reply, method: "llm" };
+
+      } catch (err) {
+        if (err.code === "ECONNREFUSED") {
+          throw new Error(`Ollama not running at ${this.baseURL} — run: ollama serve`);
+        }
+        continue;
       }
-      throw err;
     }
+
+    // All 3 attempts failed
+    return null;
   }
 
   async isAvailable() {
