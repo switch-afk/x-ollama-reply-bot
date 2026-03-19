@@ -1,0 +1,20 @@
+{
+  "name": "twitter-reply-bot",
+  "version": "1.0.0",
+  "description": "Auto-reply bot for Twitter followings using Ollama LLaMA2 + twitterapi.io",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "login": "node src/login.js",
+    "dashboard": "node src/dashboard.js",
+    "dry-run": "DRY_RUN=true node src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.18.0",
+    "ora": "^8.0.0"
+  }
+}

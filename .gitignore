@@ -1,0 +1,26 @@
+# Environment & secrets
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+
+# Data & logs
+data/
+*.log
+pm2.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+test_*.js
