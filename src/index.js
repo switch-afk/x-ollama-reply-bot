@@ -287,21 +287,26 @@ async function runCycle() {
                 break;
               }
 
-              // Auth error — try re-login
+              // Auth error — try re-login ONCE, then skip this tweet
               if (isAuthError(errMsg) && !authFailed) {
                 const relogged = await autoLogin();
                 if (relogged) {
                   twitter.setLoginCookie(loginCookie);
+                  // Wait 30-60s after relogin before retrying
+                  const cooldown = randDelay();
+                  log.info(`  Cooling down ${Math.round(cooldown / 1000)}s after relogin...`);
+                  await sleep(cooldown);
                   log.ok("  Retrying with new cookie...");
-                  continue; // retry same reply
+                  continue; // retry same reply ONE more time
                 } else {
                   authFailed = true;
                   log.err("  Re-login failed");
                 }
               }
 
-              log.err(`  Post failed: ${errMsg}`);
-              errors++;
+              // If we already relogged and still failing, skip this tweet
+              // It'll come back next scan cycle
+              log.warn(`  Skipping tweet — will retry next cycle`);
               logActivity({ type: "error", targetUser: username, tweetId: tweet.id, error: errMsg });
               break;
             }
@@ -311,6 +316,9 @@ async function runCycle() {
           const delay = randDelay();
           log.info(`  Waiting ${Math.round(delay / 1000)}s...`);
           await sleep(delay);
+
+          // Only mark as replied if actually posted
+          if (posted) markReplied(tweet.id);
         } else {
           log.ok(`  [DRY RUN] Would post`);
           repliesSent++;
@@ -318,9 +326,8 @@ async function runCycle() {
             type: "dry_run", method, targetUser: username,
             tweetId: tweet.id, tweetText: fullText.slice(0, 200), replyText: reply,
           });
+          markReplied(tweet.id);
         }
-
-        markReplied(tweet.id);
       }
 
       if (repliedThisUser > 0) {
