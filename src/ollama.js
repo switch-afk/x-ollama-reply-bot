@@ -147,11 +147,13 @@ export class OllamaClient {
 - NEVER mention Solana, crypto, DeFi, NFTs, pump.fun unless the tweet is about them.
 - Be witty, sharp, natural. Sound like a real person.
 - One sentence only. Max 1 emoji.
-- Never start with "I" "Wow" "This" "Oh" "So"
+- NEVER ask a question. No question marks.
+- NEVER start with "I" "Wow" "This" "Oh" "So" "Haha"
+- NEVER refuse to reply. Always engage positively.
 - No brackets, placeholders, quotes, hashtags
 - No wallets, addresses, DMs, links
 - No generic filler like "great post" or "interesting"
-- Be energetic and positive
+- Make a statement, not a question. Be confident.
 ${isCrypto ? "- The tweet IS about crypto so you can flex crypto/Solana knowledge" : "- The tweet is NOT about crypto so do NOT mention any crypto topics"}
 - Output ONLY the reply text, absolutely nothing else`;
 
@@ -179,8 +181,21 @@ Reply:`;
       const bad = [/\[/, /wallet/i, /address/i, /DM me/i, /send me/i,
         /check (my|the) (bio|profile|link)/i, /interesting read/i,
         /great (post|article|read|thread)/i, /^(SKIP|N\/A|none|undefined)$/i,
-        /^RT /i, /insert/i, /\bfollow me\b/i];
+        /^RT /i, /insert/i, /\bfollow me\b/i,
+        /I can't/i, /I cannot/i, /I'm just an AI/i, /as an AI/i, /I'm not able/i,
+        /I don't think/i, /I'm sorry/i, /I apologize/i,
+        /satisfy your request/i, /can't (help|assist|create|generate)/i,
+        /inappropriate/i, /offensive/i, /harmful/i, /violat/i,
+      ];
       for (const p of bad) { if (p.test(reply)) return null; }
+
+      // Strip trailing question marks — turn questions into statements
+      reply = reply.replace(/\?+\s*$/, "").trim();
+
+      // If reply still ends with question words, reject
+      if (/\b(right|huh|yeah|no|eh)\s*$/i.test(reply)) {
+        reply = reply.replace(/\s*(right|huh|yeah|no|eh)\s*$/i, "").trim();
+      }
 
       // If tweet is NOT crypto but reply mentions crypto stuff, reject it
       if (!isCrypto && /\b(solana|pump\.?fun|raydium|jupiter|phantom|tensor|magic\s*eden|marinade|defi|nft|token|blockchain|web3|crypto|on-chain)\b/i.test(reply)) {

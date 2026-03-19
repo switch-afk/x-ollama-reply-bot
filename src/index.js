@@ -268,21 +268,21 @@ async function runCycle() {
             } catch (err) {
               const errMsg = err.message || "";
 
-              // Note tweet error (code 37) — reply too long, regenerate shorter
+              // Note tweet error (code 37) — reply too long, REGENERATE shorter
               if (errMsg.includes("note tweet") || errMsg.includes("37")) {
-                log.warn(`  Reply too long (${finalReply.length} chars) — regenerating shorter...`);
+                log.warn(`  Reply too long (${finalReply.length} chars) — regenerating...`);
 
-                // Truncate to 100 chars at word boundary
-                if (finalReply.length > 100) {
-                  finalReply = finalReply.slice(0, 97);
-                  const sp = finalReply.lastIndexOf(" ");
-                  if (sp > 50) finalReply = finalReply.slice(0, sp);
-                  log.bot(`  [shortened] → "${finalReply}"`);
-                  continue; // retry with shorter
-                }
+                // Regenerate with Ollama
+                try {
+                  const retry = await ollama.generateReply(fullText, username, displayName, bio);
+                  if (retry && retry.reply && retry.reply.length >= 5 && retry.reply.length <= 200) {
+                    finalReply = retry.reply;
+                    log.bot(`  [regenerated] → "${finalReply}"`);
+                    continue; // retry with new reply
+                  }
+                } catch {}
 
-                // Already short — skip
-                log.err(`  Still failing at ${finalReply.length} chars, skipping`);
+                log.err(`  Could not regenerate, skipping`);
                 errors++;
                 break;
               }
